@@ -96,73 +96,161 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 document.getElementById('adminForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const brand = document.getElementById('carBrand').value;
     const model = document.getElementById('carModel').value;
     const unlockCost = document.getElementById('unlockCost').value;
     const costPerKm = document.getElementById('costPerKm').value;
     const costPerMin = document.getElementById('costPerMin').value;
+    const distance = document.getElementById('distance').value;
 
-    try {
-        const accounts = await web3.eth.getAccounts();
-        const sender = accounts[0];
+    if (unlockCost < 0 || costPerKm < 0 || costPerMin < 0 || distance < 0) {
+        alert("unlock cost, cost per km, cost per min and distance have to larger that 0");
 
-        await rideShare.methods.registerCar(model, unlockCost, costPerKm, costPerMin).send({ from: sender });
-        alert("Car registered successfully!");
-    } catch (error) {
-        console.error("Error registering car:", error);
-        alert("Failed to register car. Check console for details.");
+    }else {
+        try {
+            const accounts = await web3.eth.getAccounts();
+            const sender = accounts[0];
+    
+            await rideShare.methods.registerCar(brand, model, unlockCost, costPerKm, costPerMin, distance).send({ from: sender });
+            alert("Car registered successfully!");
+            const car = await rideShare.methods.getCarDetails(1).call();
+            console.log("car model: ", car.model);
+        } catch (error) {
+            console.error("Error registering car:", error);
+            alert("Failed to register car. Check console for details.");
+        }
     }
 });
+
+rideShare.events.CarRegistered().on('data', (event) => {
+    console.log("Car registered:", event.returnValues);
+});
+
 
 // Fetch available cars for users
 async function loadAvailableCars() {
     const accounts = await web3.eth.getAccounts();
     const sender = accounts[0];
-    document.getElementById('carList').innerHTML = ""; // Clear the list
 
-    let carId = 1; // Start with the first car
-    while (true) {
-        try {
-            // Fetch car details by ID
-            const car = await rideShare.methods.getCarDetails(carId).call({ from: sender });
+    try {
+        const nextCarId = await rideShare.methods.getNextCarId().call();
+        document.getElementById('carList').innerHTML = ""; // Clear the list
 
-            // If the car is available, create an HTML element for it
-            if (car.isAvailable) {
+        for (let carId = 1; carId < nextCarId; carId++) {
+            try {
+                const car = await rideShare.methods.getCarDetails(carId).call({ from: sender });
+                console.log(`Fetched car ${carId}:`, car); // Debugging log
+
+                // If the car is available, create an HTML element for it
+                console.log("car model: ", car[5]);
+                if (car[5] == true) {
+                    const carElement = document.createElement('div');
+                    carElement.className = "card mb-2";
+                    carElement.innerHTML = `
+                        <div class="card-body">
+                            <h5 class="card-title">${car[1]}</h5> <!-- car[1] is the model -->
+                            <p>Unlock Cost: ${car[2]} ETH</p> <!-- car[2] is unlock_cost -->
+                            <p>Cost per KM: ${car[3]} ETH</p>
+                            <p>Cost per Min: ${car[4]} ETH</p>
+                            <button class="btn btn-primary rentCarButton" data-id="${car[0]}">Rent</button>
+                        </div>
+                    `;
+                    document.getElementById('carList').appendChild(carElement);
+                    const button = carElement.querySelector('button');
+                    button.addEventListener('click', () => rentCar(car[0], sender));
+                }
+            } catch (error) {
+                console.error(`Error fetching car ${carId}:`, error); // Debugging log
+            }
+        }
+    } catch (error) {
+        console.error("Error loading available cars:", error);
+    }
+}
+
+async function rentCar(carID, sender) {
+    try {
+        const carDetails = await rideShare.methods.getCarDetails(carID).call({ from: sender });
+        const unlockCost = carDetails[2]; // Assuming the unlock cost is the 3rd element in the array
+        const UnlockCost = web3.utils.toWei(unlockCost.toString(), "ether");
+        console.log("unlock cost in wei: ", UnlockCost);
+
+        // Check if the user has already rented a car
+        const rentedCarIds = await rideShare.methods.getRentedCarsByUser(sender).call({ from: sender });
+        if (rentedCarIds.length >= 1) {
+            alert("You can not rent more than one car at a time.");
+            return;
+        }
+
+        // Proceed to rent the car
+        await rideShare.methods.rentCar(carID).send({
+            from: sender,
+            value: UnlockCost // Convert unlock cost to wei
+        });
+        console.log(`Car with the ID ${carID} rented`);
+        loadAvailableCars();
+        loadRentedCars();
+    } catch (error) {
+        console.error(`Error renting car ${carID}:`, error);
+        alert("Failed to rent car. Check the console for details.");
+    }
+}
+
+
+async function loadRentedCars() {
+    const accounts = await web3.eth.getAccounts();
+    const sender = accounts[0];
+
+    try {
+        // Fetch the list of rented car IDs for the logged-in user
+        const rentedCarIds = await rideShare.methods.getRentedCarsByUser(sender).call({ from: sender });
+        document.getElementById('rentedCarList').innerHTML = ""; // Clear the list
+
+        if (rentedCarIds.length === 0) {
+            document.getElementById('rentedCarList').innerHTML = "<p>You have not rented any cars.</p>";
+            return;
+        }
+
+        // Fetch details of each rented car
+        for (const carId of rentedCarIds) {
+            try {
+                const car = await rideShare.methods.getCarDetails(carId).call({ from: sender });
+
+                // Create an HTML element for the rented car
                 const carElement = document.createElement('div');
                 carElement.className = "card mb-2";
                 carElement.innerHTML = `
                     <div class="card-body">
-                        <h5 class="card-title">${car.model}</h5>
-                        <p>Unlock Cost: ${car.unlock_cost}</p>
-                        <p>Cost per KM: ${car.cost_per_km}</p>
-                        <p>Cost per Min: ${car.cost_per_min}</p>
-                        <button class="btn btn-primary rentCarButton" data-id="${car.id}">Rent</button>
+                        <h5 class="card-title">${car[1]}</h5> <!-- car[1] is the model -->
+                        <p>Unlock Cost: ${car[2]} ETH</p> <!-- car[2] is unlock_cost -->
+                        <p>Cost per KM: ${car[3]} ETH</p>
+                        <p>Cost per Min: ${car[4]} ETH</p>
+                        <p>Status: ${car[5] ? "Available" : "Rented"}</p> <!-- car[5] is availability -->
+                        <button class="btn btn-secondary returnCarButton" data-id="${car[0]}">Return</button>
                     </div>
                 `;
-                document.getElementById('carList').appendChild(carElement);
-            }
+                document.getElementById('rentedCarList').appendChild(carElement);
 
-            carId++; // Move to the next car ID
-        } catch (error) {
-            // Stop the loop when no more cars are available
-            console.log("No more cars to load:", error);
-            break;
-        }
-    }
-
-    // Add event listeners to "Rent" buttons
-    document.querySelectorAll('.rentCarButton').forEach((button) => {
-        button.addEventListener('click', async (e) => {
-            const carId = e.target.getAttribute('data-id'); // Get car ID from button attribute
-            try {
-                await rideShare.methods.rentCar(carId).send({ from: sender });
-                alert("Car rented successfully!");
-                loadAvailableCars(); // Refresh the car list
+                const button = carElement.querySelector('button');
+                button.addEventListener('click', () => returnCar(car[0], sender));
             } catch (error) {
-                console.error("Error renting car:", error);
-                alert("Failed to rent car. Check console for details.");
+                console.error(`Error fetching details for rented car ${carId}:`, error);
             }
-        });
-    });
+        }
+    } catch (error) {
+        console.error(`Error loading rented cars:`, error);
+    }
+}
+
+async function returnCar(carId, sender) {
+    try {
+        await rideShare.methods.returnCar(carId).send({ from: sender });
+        console.log(`Car with ID ${carId} returned successfully.`);
+        loadRentedCars(); // Refresh the rented cars list
+        loadAvailableCars(); // Refresh the available cars list
+    } catch (error) {
+        console.error(`Error returning car ${carId}:`, error);
+    }
 }
 
 
@@ -171,8 +259,12 @@ async function loadAvailableCars() {
 async function handleLoginSuccess(isAdmin) {
     if (isAdmin) {
         document.getElementById('adminForm').classList.remove('d-none');
+        document.getElementById('nav-bar').classList.remove('d-none');
+        loadAvailableCars();
     } else {
         document.getElementById('userSection').classList.remove('d-none');
+        document.getElementById('nav-bar').classList.remove('d-none');
         loadAvailableCars();
+        loadRentedCars();
     }
 }
