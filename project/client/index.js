@@ -148,10 +148,10 @@ async function loadAvailableCars() {
                     carElement.className = "card mb-2";
                     carElement.innerHTML = `
                         <div class="card-body">
-                            <h5 class="card-title">${car[1]}</h5> <!-- car[1] is the model -->
-                            <p>Unlock Cost: ${car[2]} ETH</p> <!-- car[2] is unlock_cost -->
-                            <p>Cost per KM: ${car[3]} ETH</p>
-                            <p>Cost per Min: ${car[4]} ETH</p>
+                            <h5 class="card-title">${car[2]}</h5> <!-- car[1] is the model -->
+                            <p>Unlock Cost: ${car[3]} ETH</p> <!-- car[2] is unlock_cost -->
+                            <p>Cost per KM: ${car[4]} ETH</p>
+                            <p>Cost per Min: ${car[5]} ETH</p>
                             <button class="btn btn-primary rentCarButton" data-id="${car[0]}">Rent</button>
                         </div>
                     `;
@@ -171,7 +171,7 @@ async function loadAvailableCars() {
 async function rentCar(carID, sender) {
     try {
         const carDetails = await rideShare.methods.getCarDetails(carID).call({ from: sender });
-        const unlockCost = carDetails[2]; // Assuming the unlock cost is the 3rd element in the array
+        const unlockCost = carDetails[3]; // Assuming the unlock cost is the 3rd element in the array
         const UnlockCost = web3.utils.toWei(unlockCost.toString(), "ether");
         console.log("unlock cost in wei: ", UnlockCost);
 
@@ -244,14 +244,49 @@ async function loadRentedCars() {
 
 async function returnCar(carId, sender) {
     try {
-        await rideShare.methods.returnCar(carId).send({ from: sender });
+        // Fetch car details
+        const carDetails = await rideShare.methods.getCarDetails(carId).call({ from: sender });
+        const perMin = parseInt(carDetails[5]); // cost_per_min
+        const perKm = parseInt(carDetails[4]);  // cost_per_km
+        let distance = parseInt(carDetails[6]); // distance
+
+        // Ensure minimum distance of 1
+        if (distance < 1) {
+            distance = 1;
+        }
+
+        // Fetch rental log to calculate rental duration
+        const rentalLog = await rideShare.methods.getRentalLog(carId).call({ from: sender });
+        const rentedAt = parseInt(rentalLog[2]); // Convert to integer if not already
+        const currentTime = Math.floor(Date.now() / 1000); // Get current time in seconds
+        const durationInMinutes = Math.max(1, Math.floor((currentTime - rentedAt) / 60)); // Minimum 1 minute
+
+        // Calculate costs
+        const timeCost = durationInMinutes * perMin;
+        const distanceCost = distance * perKm;
+        const totalCost = timeCost + distanceCost;
+
+        // Convert total cost to Wei for Ethereum transaction
+        const totalCostInWei = web3.utils.toWei(totalCost.toString(), "ether");
+        console.log("Value in Wei: ", totalCostInWei);
+
+        console.log(`Returning car ID ${carId}`);
+        console.log(`Duration: ${durationInMinutes} mins, Distance: ${distance} km`);
+        console.log(`Total Cost: ${totalCost} Wei`);
+
+        // Send transaction with the calculated value
+        await rideShare.methods.returnCar(carId).send({ from: sender, value: totalCostInWei });
         console.log(`Car with ID ${carId} returned successfully.`);
+
+        // Refresh the lists
         loadRentedCars(); // Refresh the rented cars list
         loadAvailableCars(); // Refresh the available cars list
     } catch (error) {
         console.error(`Error returning car ${carId}:`, error);
     }
 }
+
+
 
 
 

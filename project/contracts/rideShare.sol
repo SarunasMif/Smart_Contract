@@ -7,9 +7,9 @@ contract Ride_share {
     struct User {
         address owner;
         bool isAdmin;
-        string passwordHash; // Hash of the password
+        string passwordHash;
         uint balance;
-    }
+    } // Holds user info
 
     struct Car {
         uint256 id;
@@ -20,12 +20,23 @@ contract Ride_share {
         uint cost_per_min;
         uint distance;
         bool isAvailable;
-    }
+    } // Holds car info
+
+    struct RentLog {
+        address user;
+        uint256 carId;
+        uint256 rentedAt;
+        uint256 returnedAt;
+    } // Holds the rental data needed to calculate costs
 
     mapping(address => User) private users;
     mapping(uint256 => Car) private cars;
     mapping(address => uint256[]) private rentedCarsByUser;
+    mapping(uint256 => RentLog) private rentalLogs;
     uint256 private nextCarId = 1;
+
+    event CarRented(address indexed user, uint256 carId, uint256 timestamp);
+    event CarReturned(address indexed user, uint256 carId, uint256 timestamp);
 
     function register(string memory passwordHash, bool isAdmin) public {
         require(bytes(users[msg.sender].passwordHash).length == 0, "User already registered");
@@ -62,7 +73,6 @@ contract Ride_share {
     function rentCar(uint256 carId) public payable {
         require(cars[carId].isAvailable, "Car is not available for rent");
         require(bytes(users[msg.sender].passwordHash).length != 0, "User not registered");
-        // require(msg.value == cars[carId].unlock_cost, "Incorrect payment amount");
 
         // Transfer funds to the company address
         (bool sent, ) = company_address.call{value: msg.value}("");
@@ -71,12 +81,27 @@ contract Ride_share {
         // Logic to handle renting process (e.g., payment) can be added here.
         cars[carId].isAvailable = false; // Mark car as rented
         rentedCarsByUser[msg.sender].push(carId);
+
+        rentalLogs[carId] = RentLog({
+            user: msg.sender,
+            carId: carId,
+            rentedAt: block.timestamp,
+            returnedAt: 0
+        });
+
+        emit CarRented(msg.sender, carId, block.timestamp);
     }
 
-    function returnCar(uint256 carId) public {
+    function returnCar(uint256 carId) public payable {
         require(!cars[carId].isAvailable, "Car is not currently rented");
         require(bytes(users[msg.sender].passwordHash).length != 0, "User not registered");
 
+        rentalLogs[carId].returnedAt = block.timestamp;
+
+        // Transfer the payment to the admin address
+        (bool sent, ) = company_address.call{value: msg.value}("");
+        require(sent, "Payment transfer failed");
+        
         uint256[] storage rentedCars = rentedCarsByUser[msg.sender];
         for (uint256 i = 0; i < rentedCars.length; i++) {
             if (rentedCars[i] == carId) {
@@ -86,6 +111,7 @@ contract Ride_share {
             }
         }
         // Logic to handle return process can be added here (e.g., calculate total cost).
+
         cars[carId].isAvailable = true; // Mark car as available
     }
 
@@ -95,9 +121,11 @@ contract Ride_share {
         returns (
             uint256,
             string memory,
-            uint256,
-            uint256,
-            uint256,
+            string memory,
+            uint,
+            uint,
+            uint,
+            uint,
             bool
         )
     {
@@ -106,10 +134,12 @@ contract Ride_share {
 
         return (
             car.id,
+            car.brand,
             car.model,
             car.unlock_cost,
             car.cost_per_km,
             car.cost_per_min,
+            car.distance,
             car.isAvailable
         );
     }
@@ -121,5 +151,10 @@ contract Ride_share {
     function getRentedCarsByUser(address user) public view returns (uint256[] memory) {
         require(bytes(users[msg.sender].passwordHash).length != 0, "User not registered");
         return rentedCarsByUser[user];
+    }
+
+    function getRentalLog(uint256 carId) public view returns (address, uint256, uint256, uint256) {
+        RentLog memory log = rentalLogs[carId];
+        return (log.user, log.carId, log.rentedAt, log.returnedAt);
     }
 }
