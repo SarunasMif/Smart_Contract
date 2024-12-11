@@ -143,7 +143,7 @@ async function loadAvailableCars() {
 
                 // If the car is available, create an HTML element for it
                 console.log("car model: ", car[5]);
-                if (car[5] == true) {
+                if (car[7] == true) {
                     const carElement = document.createElement('div');
                     carElement.className = "card mb-2";
                     carElement.innerHTML = `
@@ -225,7 +225,7 @@ async function loadRentedCars() {
                         <p>Unlock Cost: ${car[2]} ETH</p> <!-- car[2] is unlock_cost -->
                         <p>Cost per KM: ${car[3]} ETH</p>
                         <p>Cost per Min: ${car[4]} ETH</p>
-                        <p>Status: ${car[5] ? "Available" : "Rented"}</p> <!-- car[5] is availability -->
+                        <p>Status: ${car[7] ? "Available" : "Rented"}</p> <!-- car[7] is availability -->
                         <button class="btn btn-secondary returnCarButton" data-id="${car[0]}">Return</button>
                     </div>
                 `;
